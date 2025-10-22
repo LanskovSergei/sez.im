@@ -19,7 +19,7 @@ import json
 BUBBLE_CONFIG = {
     'app_name': 'sez.im',
     'api_token': '56721b98053d142416bfa051ab4feeba',
-    'table_name': 'rating_merch',
+    'table_name': ''ratingmerch',
     'api_version': '1.1'
 }
 
