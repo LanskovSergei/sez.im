@@ -11,27 +11,29 @@ import sys
 from datetime import datetime
 import json
 
+# ============================================================================
+# КОНФИГУРАЦИЯ
+# ============================================================================
 
-
+# Настройки Bubble API
 BUBBLE_CONFIG = {
-    'app_name': 'your-app-name',  
-    'api_token': 'your-api-token',  
-    'table_name': 'rating_merch',  
-    'api_version': '1.1'  
+    'app_name': 'sez.im',
+    'api_token': '56721b98053d142416bfa051ab4feeba',
+    'table_name': 'rating_merch',
+    'api_version': '1.1'
 }
 
-
+# Настройки Supabase PostgreSQL
 SUPABASE_CONFIG = {
-    'host': 'localhost',  
+    'host': 'localhost',
     'database': 'postgres',
     'user': 'postgres',
-    'password': 'your-postgres-password', 
+    'password': 'chA1IH5S3v2UWUn3j1YCE8cCXVDMtgCu',
     'port': '5432'
 }
 
-
+# Маппинг полей: Bubble -> Supabase
 FIELD_MAPPING = {
-    
     'average_revenue_per_session': None,
     'average_revenue_per_session_percentage': None,
     'rating_number': None,
@@ -43,9 +45,8 @@ FIELD_MAPPING = {
     'target_average_revenue_per_session': None,
     'total_revenue': None,
     'users_count': None,
-    
-    'merch': 'merch',  
-    'period': 'period',  
+    'merch': 'merch',
+    'period': 'period',
 }
 
 # ============================================================================
@@ -65,16 +66,17 @@ def fetch_bubble_data(table_name, api_token, app_name, api_version="1.1"):
     Returns:
         list: Список записей из Bubble
     """
-    url = f"https://{app_name}.bubbleapps.io/api/{api_version}/obj/{table_name}"
+    url = f"https://{app_name}/version-test/api/{api_version}/obj/{table_name}"
     headers = {
         "Authorization": f"Bearer {api_token}"
     }
     
     all_records = []
     cursor = 0
-    limit = 100  
+    limit = 100
     
     log(f"Начинаю загрузку данных из Bubble таблицы '{table_name}'...")
+    log(f"URL: {url}")
     
     while True:
         try:
@@ -100,9 +102,7 @@ def fetch_bubble_data(table_name, api_token, app_name, api_version="1.1"):
             all_records.extend(results)
             log(f"Загружено {len(all_records)} записей...")
             
-            
             cursor += limit
-            
             
             if len(results) < limit:
                 break
@@ -131,14 +131,10 @@ def transform_record(bubble_record, field_mapping):
         target_field = supabase_field if supabase_field else bubble_field
         value = bubble_record.get(bubble_field)
         
-        
         if value is not None:
-            
             if isinstance(value, dict) and '_id' in value:
-               
                 value = value.get('_id')
                 log(f"Найдена связь в поле '{bubble_field}': {value}", "WARNING")
-                log(f"ВАЖНО: Требуется маппинг ID для связанных таблиц!", "WARNING")
             
             supabase_record[target_field] = value
     
@@ -174,7 +170,6 @@ def insert_to_supabase(records, connection_config):
         cursor = conn.cursor()
         log("Подключение установлено успешно")
         
-       
         all_fields = set()
         for record in records:
             all_fields.update(record.keys())
@@ -185,21 +180,19 @@ def insert_to_supabase(records, connection_config):
             log("Нет полей для вставки", "ERROR")
             return 0, 0
         
-       
         placeholders = ', '.join(['%s'] * len(fields))
         fields_str = ', '.join(fields)
-        
         
         update_str = ', '.join([f"{field} = EXCLUDED.{field}" for field in fields if field != 'id'])
         
         insert_query = f"""
             INSERT INTO rating_merch ({fields_str})
             VALUES ({placeholders})
-            ON CONFLICT (id) DO UPDATE SET
-                {update_str}
         """
         
-       
+        if update_str:
+            insert_query += f"\nON CONFLICT (id) DO UPDATE SET\n    {update_str}"
+        
         records_data = []
         for record in records:
             row = []
@@ -210,14 +203,13 @@ def insert_to_supabase(records, connection_config):
         
         log(f"Начинаю вставку {len(records_data)} записей...")
         
-       
         success_count = 0
         error_count = 0
-        
         
         for i, row_data in enumerate(records_data, 1):
             try:
                 cursor.execute(insert_query, row_data)
+                conn.commit()
                 success_count += 1
                 
                 if i % 10 == 0:
@@ -227,12 +219,9 @@ def insert_to_supabase(records, connection_config):
                 error_count += 1
                 log(f"Ошибка при вставке записи {i}: {e}", "ERROR")
                 log(f"Данные записи: {dict(zip(fields, row_data))}", "ERROR")
-                
                 conn.rollback()
                 continue
         
-        
-        conn.commit()
         log(f"Транзакция успешно завершена")
         
         cursor.close()
@@ -258,7 +247,6 @@ def migrate_table():
     log("Таблица: rating_merch")
     log("=" * 80)
     
-    
     bubble_records = fetch_bubble_data(
         table_name=BUBBLE_CONFIG['table_name'],
         api_token=BUBBLE_CONFIG['api_token'],
@@ -272,11 +260,9 @@ def migrate_table():
     
     log(f"Успешно загружено {len(bubble_records)} записей из Bubble")
     
-    
     log("Сохраняю исходные данные в bubble_raw_data.json...")
-    with open('/home/claude/bubble_raw_data.json', 'w', encoding='utf-8') as f:
+    with open('bubble_raw_data.json', 'w', encoding='utf-8') as f:
         json.dump(bubble_records, f, indent=2, ensure_ascii=False)
-    
     
     log("Начинаю трансформацию данных...")
     transformed_records = []
@@ -291,14 +277,11 @@ def migrate_table():
     
     log(f"Трансформировано {len(transformed_records)} записей")
     
-    
     log("Сохраняю трансформированные данные в supabase_transformed_data.json...")
-    with open('/home/claude/supabase_transformed_data.json', 'w', encoding='utf-8') as f:
+    with open('supabase_transformed_data.json', 'w', encoding='utf-8') as f:
         json.dump(transformed_records, f, indent=2, ensure_ascii=False)
     
-    
     success, errors = insert_to_supabase(transformed_records, SUPABASE_CONFIG)
-    
     
     log("=" * 80)
     log("МИГРАЦИЯ ЗАВЕРШЕНА")
